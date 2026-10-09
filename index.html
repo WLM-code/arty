@@ -167,7 +167,7 @@ img{max-width:100%}
     </section>
   </main>
 
-  <footer>Your archive and your API key stay in this browser on this device. <button class="linkbtn" id="btn-key" type="button">Change API key</button></footer>
+  <footer>Your archive stays in this browser on this device. Every lesson keeps its photo and its challenge.</footer>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
@@ -230,56 +230,26 @@ img{max-width:100%}
     persist(); openId = null; renderArchive(); toast("Deleted.");
   }
 
-  /* ---------- Anthropic calls, using the visitor's own key ---------- */
-  var KEY_STORE = "artyfarty.key", MODEL = "claude-sonnet-5-5";
-  var ANALYSE_PROMPT =
-    "You are a sharp, no-nonsense art teacher. The attached image is a photo or upload of an artwork. " +
-    "Reply with only one JSON object: " +
-    '{"title": string, "artist": string, "period": string, "year": string, "confidence": "high"|"medium"|"low", "note": string, "facts": [{"type": string, "text": string}, {"type": string, "text": string}, {"type": string, "text": string}]}. ' +
-    "Rules: Name the work only if you are confident. If it is not a work you know, use a short descriptive title, put 'Unknown' as artist, give your best read of style and period, and set confidence to low. " +
-    "year may be an approximate range or empty. note is one short sentence, only if the photo is unclear, cropped, a detail or a reproduction, otherwise an empty string. " +
-    "facts: exactly three, each a different type chosen from Colour, Style, Technique, Period, Artist, Quote. Each text is at most 45 words, concrete and specific, no filler. " +
-    "Use a Quote only if you are sure the artist really said or wrote it, and say where. Never invent a quote or a trivia fact. Write in English.";
-  function challengePrompt(e, prev) {
-    var ctx = e.facts.map(function (f) { return f.type + ": " + f.text; }).join(" | ");
-    return 'Artwork: "' + e.title + '" by ' + e.artist + " (" + e.period + "). Notes: " + ctx + " " +
-      "Invent one short, fun, hands-on challenge for a teenager that can be finished in 15 minutes, either making their own art inspired by this work or trying a technique the artist used. " +
-      "Use only simple things: pen, pencil, paper, scissors, glue, tape, markers, a printer, old magazines. Concrete and punchy, not childish, no fluff. " +
-      'Reply with only JSON: {"title": "max 5 words", "materials": ["3 to 5 items"], "steps": ["3 to 5 short imperative steps"], "twist": "one sentence extra push"}.' +
-      (prev ? " Do not repeat this one: " + prev + "." : "");
-  }
-  async function claude(content) {
-    var key = lsGet(KEY_STORE);
-    if (!key) throw { code: "nokey" };
+  /* ---------- server calls ---------- */
+  var CODE_KEY = "artyfarty.code";
+  async function ai(path, body) {
+    var headers = { "content-type": "application/json" };
+    var code = lsGet(CODE_KEY);
+    if (code) headers["x-access-code"] = code;
     var res;
-    try {
-      res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify({ model: MODEL, max_tokens: 1200, messages: [{ role: "user", content: content }] })
-      });
-    } catch (e) { throw { code: "network" }; }
+    try { res = await fetch(path, { method: "POST", headers: headers, body: JSON.stringify(body) }); }
+    catch (e) { throw { code: "network" }; }
     var data = null;
     try { data = await res.json(); } catch (e) { /* ignore */ }
-    if (!res.ok) {
-      var msg = (data && data.error && data.error.message) || "";
-      throw { code: res.status === 401 ? "badkey" : /credit balance/i.test(msg) ? "nocredit" : res.status === 429 ? "rate_limited" : "server" };
-    }
-    var text = (data.content || []).filter(function (b) { return b.type === "text"; }).map(function (b) { return b.text; }).join("");
-    var i = text.indexOf("{"), j = text.lastIndexOf("}");
-    if (i < 0 || j < i) throw { code: "invalid" };
-    try { return JSON.parse(text.slice(i, j + 1)); } catch (e) { throw { code: "invalid" }; }
+    if (!res.ok) throw { code: res.status === 401 ? "unauthorized" : res.status === 429 ? "rate_limited" : res.status === 500 ? "config" : "server" };
+    return data;
   }
   function errCopy(e) {
     var c = e && e.code;
-    if (c === "nokey") return "Add your own Anthropic API key to start scanning.";
-    if (c === "badkey") return "Anthropic did not accept that key. Check it and paste it again.";
-    if (c === "nocredit") return "Your Anthropic account is out of credit. Add some in the Anthropic console, then try again.";
+    if (c === "unauthorized") return "This app needs an access code.";
+    if (c === "config") return "The server is not set up yet. Check the setup steps.";
     if (c === "network") return "No connection. Check your internet and try again.";
-    if (c === "rate_limited") return "Too many requests right now. Wait a minute, then try again.";
+    if (c === "rate_limited") return "The free daily limit is busy. Wait a minute, then try again.";
     if (c === "image_rejected") return "That image could not be used. Try another file.";
     if (c === "invalid") return "No usable answer for that image. Try a clearer photo.";
     return "Something went wrong. Try again.";
@@ -298,7 +268,7 @@ img{max-width:100%}
     };
   }
   async function makeAssignment(entry, prevTitle) {
-    var r = await claude(challengePrompt(entry, prevTitle));
+    var r = await ai("/api/challenge", { title: entry.title, artist: entry.artist, period: entry.period, facts: entry.facts, prev: prevTitle || "" });
     var steps = (Array.isArray(r && r.steps) ? r.steps : []).map(String).filter(Boolean);
     if (!steps.length) throw { code: "invalid" };
     return {
@@ -377,22 +347,16 @@ img{max-width:100%}
       img ? h("figure", { class: "shot" }, h("img", { src: img, alt: "Your photo" })) : null,
       p, h("div", { class: "bar", "aria-hidden": "true" }));
   }
-  function keyView(msg) {
-    var inp = h("input", { type: "password", id: "apikey", class: "codein", placeholder: "sk-ant-...", autocomplete: "off", spellcheck: "false" });
-    return h("div", { class: "card err" },
-      h("p", { text: msg }),
-      h("p", { class: "hint", text: "Get a key at console.anthropic.com (Settings > API keys). It is saved only in this browser, and scans are billed to your own Anthropic account." }),
-      h("div", { class: "row" }, inp, h("button", { class: "btn", type: "button", text: "Save key", onclick: function () {
-        var v = inp.value.trim();
-        if (!v) return;
-        lsSet(KEY_STORE, v); toast("Key saved.");
-        if (lastFile) analyse(lastFile); else $("#lesson-host").replaceChildren(lessonView(JSON.parse(JSON.stringify(EXAMPLE)), { example: true }));
-      } })));
-  }
   function errorView(e) {
-    if (e && (e.code === "nokey" || e.code === "badkey")) return keyView(errCopy(e));
     var box = h("div", { class: "card err" }, h("p", { text: errCopy(e) }));
-    if (lastFile) box.append(h("button", { class: "btn", type: "button", text: "Try again", onclick: function () { analyse(lastFile); } }));
+    if (e && e.code === "unauthorized") {
+      var inp = h("input", { type: "password", id: "code", class: "codein", placeholder: "Access code", autocomplete: "off" });
+      box.append(h("div", { class: "row" }, inp, h("button", { class: "btn", type: "button", text: "Save code and retry", onclick: function () {
+        lsSet(CODE_KEY, inp.value.trim()); if (lastFile) analyse(lastFile);
+      } })));
+    } else if (lastFile) {
+      box.append(h("button", { class: "btn", type: "button", text: "Try again", onclick: function () { analyse(lastFile); } }));
+    }
     return box;
   }
 
@@ -405,17 +369,13 @@ img{max-width:100%}
     if (busy || !file) return;
     var host = $("#lesson-host");
     lastFile = file;
-    if (!lsGet(KEY_STORE)) { host.replaceChildren(errorView({ code: "nokey" })); return; }
     setBusy(true);
     try {
       var full, thumb;
       try { full = await scaled(file, 1280, 0.8); thumb = await scaled(file, 640, 0.78); }
       catch (e) { throw { code: "image_rejected" }; }
       host.replaceChildren(loadingView(thumb));
-      var raw = await claude([
-        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: full.split(",")[1] } },
-        { type: "text", text: ANALYSE_PROMPT }
-      ]);
+      var raw = await ai("/api/analyse", { image: full });
       var entry = saveEntry(normalise(raw, thumb));
       host.replaceChildren(lessonView(entry));
       renderArchive();
@@ -499,14 +459,7 @@ img{max-width:100%}
 
   load();
   wireInputs();
-  var exampleView = lessonView(JSON.parse(JSON.stringify(EXAMPLE)), { example: true });
-  if (lsGet(KEY_STORE)) $("#lesson-host").replaceChildren(exampleView);
-  else $("#lesson-host").replaceChildren(keyView(errCopy({ code: "nokey" })), exampleView);
-  $("#btn-key").addEventListener("click", function () {
-    showTab("scan"); lastFile = null;
-    $("#lesson-host").replaceChildren(keyView("Paste a new Anthropic API key. It replaces the saved one."));
-    $("#lesson-host").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
+  $("#lesson-host").replaceChildren(lessonView(JSON.parse(JSON.stringify(EXAMPLE)), { example: true }));
   renderArchive();
 })();
 </script>
