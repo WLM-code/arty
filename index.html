@@ -139,24 +139,24 @@ img{max-width:100%}
 <div class="wrap">
   <header>
     <h1>Arty <span>Farty</span></h1>
-    <div class="tag">Snap it. Know it. Make something.</div>
+    <div class="tag">Snap it. Decode it. Remix it.</div>
   </header>
 
   <nav role="tablist" aria-label="Sections">
-    <button class="tab" role="tab" id="tab-scan" aria-selected="true" aria-controls="view-scan">Look</button>
-    <button class="tab" role="tab" id="tab-archive" aria-selected="false" aria-controls="view-archive">Archive (0)</button>
+    <button class="tab" role="tab" id="tab-scan" aria-selected="true" aria-controls="view-scan">Decode</button>
+    <button class="tab" role="tab" id="tab-archive" aria-selected="false" aria-controls="view-archive">My stash (0)</button>
   </nav>
 
   <main>
     <section id="view-scan" role="tabpanel" aria-labelledby="tab-scan" style="display:flex;flex-direction:column;gap:24px">
       <div class="card drop" id="drop">
         <div class="drop-text">
-          <h2>Point. Shoot. Learn.</h2>
-          <p>Photograph an artwork or upload one. You get the title, the artist, the period and three things worth knowing.</p>
+          <h2>Found some art? Decode it.</h2>
+          <p>Snap a pic or upload one. You get who made it, when, and three things that make it actually interesting.</p>
         </div>
         <div class="btns">
-          <label class="btn" id="btn-cam">Take photo<input class="pick" type="file" id="in-cam" accept="image/*" capture="environment"></label>
-          <label class="btn alt" id="btn-up">Upload image<input class="pick" type="file" id="in-up" accept="image/*"></label>
+          <label class="btn" id="btn-cam">Take a pic<input class="pick" type="file" id="in-cam" accept="image/*" capture="environment"></label>
+          <label class="btn alt" id="btn-up">Upload a pic<input class="pick" type="file" id="in-up" accept="image/*"></label>
         </div>
       </div>
       <div id="lesson-host"></div>
@@ -167,7 +167,7 @@ img{max-width:100%}
     </section>
   </main>
 
-  <footer>Your archive stays in this browser on this device. Every lesson keeps its photo and its challenge.</footer>
+  <footer>Your stash lives in this browser on this device. Every lesson keeps its pic and its dare.</footer>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
@@ -209,9 +209,9 @@ img{max-width:100%}
     title: "The Starry Night", artist: "Vincent van Gogh", period: "Post-Impressionism", year: "1889",
     confidence: "high", note: "",
     facts: [
-      { type: "Colour", text: "Cobalt and ultramarine blues fight with hot yellows. The swirling sky is built from opposites, so it vibrates." },
-      { type: "Technique", text: "He loaded oil paint on in thick strokes (impasto) and painted the night scene from memory, in daylight, from his asylum window view." },
-      { type: "Quote", text: "\"I know nothing with certainty, but the sight of the stars makes me dream.\" Van Gogh wrote this in a letter to his brother Theo." }
+      { type: "Colour", text: "Deep blues clash with hot yellows. The opposites make the whole sky buzz." },
+      { type: "Technique", text: "He piled the paint on thick (that's called impasto) and painted the night sky from memory, in daylight, based on the view from his asylum window." },
+      { type: "Quote", text: "\"I know nothing with certainty, but the sight of the stars makes me dream.\" Van Gogh wrote that in a letter to his brother Theo." }
     ],
     image: null, assignment: null
   };
@@ -227,7 +227,7 @@ img{max-width:100%}
   function saveAssignment(entry, a) { entry.assignment = a; persist(); }
   function deleteEntry(entry) {
     archive = archive.filter(function (d) { return d.id !== entry.id; });
-    persist(); openId = null; renderArchive(); toast("Deleted.");
+    persist(); openId = null; renderArchive(); toast("Gone.");
   }
 
   /* ---------- server calls ---------- */
@@ -246,13 +246,13 @@ img{max-width:100%}
   }
   function errCopy(e) {
     var c = e && e.code;
-    if (c === "unauthorized") return "This app needs an access code.";
+    if (c === "unauthorized") return "Enter the access code to get in.";
     if (c === "config") return "The server is not set up yet. Check the setup steps.";
-    if (c === "network") return "No connection. Check your internet and try again.";
-    if (c === "rate_limited") return "The free daily limit is busy. Wait a minute, then try again.";
-    if (c === "image_rejected") return "That image could not be used. Try another file.";
-    if (c === "invalid") return "No usable answer for that image. Try a clearer photo.";
-    return "Something went wrong. Try again.";
+    if (c === "network") return "No signal. Check your internet and try again.";
+    if (c === "rate_limited") return "Too many scans right now. Give it a minute, then try again.";
+    if (c === "image_rejected") return "Couldn't use that pic. Try another one.";
+    if (c === "invalid") return "Couldn't read that one. Try a clearer pic.";
+    return "Something broke. Try again.";
   }
   function normalise(r, image) {
     var facts = (Array.isArray(r && r.facts) ? r.facts : []).slice(0, 3).map(function (f) {
@@ -272,7 +272,7 @@ img{max-width:100%}
     var steps = (Array.isArray(r && r.steps) ? r.steps : []).map(String).filter(Boolean);
     if (!steps.length) throw { code: "invalid" };
     return {
-      title: String(r.title || "15-minute challenge"),
+      title: String(r.title || "15-minute dare"),
       materials: (Array.isArray(r.materials) ? r.materials : []).map(String).filter(Boolean),
       steps: steps, twist: String(r.twist || "")
     };
@@ -297,12 +297,12 @@ img{max-width:100%}
   function lessonView(entry, opts) {
     opts = opts || {};
     var shot = h("figure", { class: "shot" },
-      entry.image ? h("img", { src: entry.image, alt: "Photo of " + entry.title }) : h("div", { class: "ph", text: "Your photo lands here" }),
-      opts.example ? h("span", { class: "stamp", text: "EXAMPLE LESSON" }) : null);
+      entry.image ? h("img", { src: entry.image, alt: "Photo of " + entry.title }) : h("div", { class: "ph", text: "Your pic lands here" }),
+      opts.example ? h("span", { class: "stamp", text: "EXAMPLE" }) : null);
     var meta = [entry.artist];
     if (entry.period) meta.push(entry.period);
     if (entry.year) meta.push(entry.year);
-    var flag = entry.confidence === "low" ? "Best guess" : entry.confidence === "medium" ? "Likely match" : "";
+    var flag = entry.confidence === "low" ? "Best guess" : entry.confidence === "medium" ? "Pretty sure" : "";
     var info = h("div", { class: "info" },
       h("h2", { text: entry.title }),
       h("div", { class: "meta" }, h("span", { text: meta.join(" · ") }), flag ? h("span", { class: "flag", text: flag }) : null),
@@ -312,7 +312,7 @@ img{max-width:100%}
       })));
     var box = h("div", { class: "assign" });
     function paint(a, loading, error) {
-      box.replaceChildren(h("h3", { text: "15-minute challenge" }));
+      box.replaceChildren(h("h3", { text: "15-minute dare" }));
       if (a) {
         box.append(h("div", { class: "task" },
           h("h4", { text: a.title }),
@@ -321,7 +321,7 @@ img{max-width:100%}
           a.twist ? h("p", { class: "twist", text: a.twist }) : null));
       }
       var row = h("div", { class: "row" });
-      var btn = h("button", { class: a ? "btn alt" : "btn", type: "button", text: loading ? "Thinking up something..." : a ? "Give me another" : "Give me a challenge" });
+      var btn = h("button", { class: a ? "btn alt" : "btn", type: "button", text: loading ? "Cooking up a dare..." : a ? "Gimme another" : "Dare me" });
       btn.disabled = !!loading;
       btn.addEventListener("click", async function () {
         paint(a, true);
@@ -333,14 +333,14 @@ img{max-width:100%}
       });
       row.append(btn);
       if (error) row.append(h("span", { class: "hint", text: error }));
-      if (!a && !loading && !error) row.append(h("span", { class: "hint", text: "Pen, paper, scissors. No studio needed." }));
+      if (!a && !loading && !error) row.append(h("span", { class: "hint", text: "Just pen, paper, scissors. Zero skills needed." }));
       box.append(row);
     }
     paint(entry.assignment);
     return h("article", { class: "card lesson" }, shot, info, box);
   }
   function loadingView(img) {
-    var msgs = ["Squinting at the brushwork...", "Checking for a signature...", "Reading the colours...", "Digging through art history..."];
+    var msgs = ["Reading the brushstrokes...", "Hunting for a signature...", "Checking the colours...", "Asking art history for the gossip..."];
     var p = h("p", { text: msgs[0] }), i = 0;
     var t = setInterval(function () { i = (i + 1) % msgs.length; p.textContent = msgs[i]; if (!p.isConnected) clearInterval(t); }, 2200);
     return h("div", { class: "card status" },
@@ -351,7 +351,7 @@ img{max-width:100%}
     var box = h("div", { class: "card err" }, h("p", { text: errCopy(e) }));
     if (e && e.code === "unauthorized") {
       var inp = h("input", { type: "password", id: "code", class: "codein", placeholder: "Access code", autocomplete: "off" });
-      box.append(h("div", { class: "row" }, inp, h("button", { class: "btn", type: "button", text: "Save code and retry", onclick: function () {
+      box.append(h("div", { class: "row" }, inp, h("button", { class: "btn", type: "button", text: "Unlock", onclick: function () {
         lsSet(CODE_KEY, inp.value.trim()); if (lastFile) analyse(lastFile);
       } })));
     } else if (lastFile) {
@@ -379,7 +379,7 @@ img{max-width:100%}
       var entry = saveEntry(normalise(raw, thumb));
       host.replaceChildren(lessonView(entry));
       renderArchive();
-      toast("Saved to your archive.");
+      toast("Saved to your stash.");
       host.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       host.replaceChildren(errorView(e));
@@ -406,7 +406,7 @@ img{max-width:100%}
   function fmtDate(ts) { try { return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); } catch (e) { return ""; } }
   function renderArchive() {
     var list = sorted();
-    $("#tab-archive").textContent = "Archive (" + list.length + ")";
+    $("#tab-archive").textContent = "My stash (" + list.length + ")";
     var host = $("#archive-host");
     if (openId) {
       var entry = list.filter(function (d) { return d.id === openId; })[0];
@@ -415,9 +415,9 @@ img{max-width:100%}
     }
     if (!list.length) {
       host.replaceChildren(h("div", { class: "card empty" },
-        h("h2", { text: "Nothing here yet" }),
-        h("p", { text: "Every artwork you scan is saved here with its lesson and its challenge." }),
-        h("button", { class: "btn", type: "button", text: "Scan your first one", onclick: function () { showTab("scan"); } })));
+        h("h2", { text: "Empty stash" }),
+        h("p", { text: "Everything you decode lands here, with its lesson and its dare." }),
+        h("button", { class: "btn", type: "button", text: "Decode your first one", onclick: function () { showTab("scan"); } })));
       return;
     }
     host.replaceChildren(h("div", { class: "grid" }, list.map(function (d) {
@@ -426,7 +426,7 @@ img{max-width:100%}
         h("span", { class: "tb" },
           h("strong", { text: d.title }),
           h("small", { text: d.artist + " · " + fmtDate(d.createdAt) }),
-          d.assignment ? h("span", { class: "has", text: "Has challenge" }) : null));
+          d.assignment ? h("span", { class: "has", text: "Dare unlocked" }) : null));
     })));
   }
   function renderDetail(entry) {
@@ -440,7 +440,7 @@ img{max-width:100%}
     } });
     host.replaceChildren(h("div", { "data-open": entry.id },
       h("div", { class: "bar-top" },
-        h("button", { class: "btn alt", type: "button", text: "Back to archive", onclick: function () { openId = null; renderArchive(); } }),
+        h("button", { class: "btn alt", type: "button", text: "Back to stash", onclick: function () { openId = null; renderArchive(); } }),
         delBtn),
       lessonView(entry)));
     host.scrollIntoView({ block: "start" });
