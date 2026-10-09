@@ -241,7 +241,7 @@ img{max-width:100%}
     catch (e) { throw { code: "network" }; }
     var data = null;
     try { data = await res.json(); } catch (e) { /* ignore */ }
-    if (!res.ok) throw { code: res.status === 401 ? "unauthorized" : res.status === 429 ? "rate_limited" : res.status === 500 ? "config" : "server" };
+    if (!res.ok) throw { code: res.status === 401 ? "unauthorized" : res.status === 429 ? "rate_limited" : res.status === 500 ? "config" : "server", detail: (data && data.detail) || ("HTTP " + res.status) };
     return data;
   }
   function errCopy(e) {
@@ -348,7 +348,7 @@ img{max-width:100%}
       p, h("div", { class: "bar", "aria-hidden": "true" }));
   }
   function errorView(e) {
-    var box = h("div", { class: "card err" }, h("p", { text: errCopy(e) }));
+    var box = h("div", { class: "card err" }, h("p", { text: errCopy(e) }), e && e.detail ? h("p", { class: "hint", text: "Details: " + e.detail }) : null);
     if (e && e.code === "unauthorized") {
       var inp = h("input", { type: "password", id: "code", class: "codein", placeholder: "Access code", autocomplete: "off" });
       box.append(h("div", { class: "row" }, inp, h("button", { class: "btn", type: "button", text: "Unlock", onclick: function () {
