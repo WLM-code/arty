@@ -103,6 +103,9 @@ label.btn:focus-within { outline: 3px solid var(--rose); outline-offset: 3px; }
 .status { padding: 22px 18px; display: flex; flex-direction: column; gap: 14px; }
 .status .shot { max-width: 320px; }
 .status p { margin: 0; font-family: var(--mono); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.result { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.result h4 { font-family: var(--display); font-weight: 800; font-size: 1.4rem; margin: 0; }
+.result .shot { max-width: 360px; }
 .status .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
 .bar { height: 10px; border: 2px solid var(--ink); background: var(--paper); overflow: hidden; position: relative; }
 .bar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 35%; background: var(--rose); animation: slide 1.1s ease-in-out infinite alternate; }
@@ -242,7 +245,7 @@ img{max-width:100%}
     catch (e) { throw { code: "network" }; }
     var data = null;
     try { data = await res.json(); } catch (e) { /* ignore */ }
-    if (!res.ok) throw { code: res.status === 401 ? "unauthorized" : res.status === 429 ? "rate_limited" : res.status === 500 ? "config" : "server", detail: (data && data.detail) || ("HTTP " + res.status) };
+    if (!res.ok) throw { code: res.status === 401 ? "unauthorized" : res.status === 429 ? (data && data.daily ? "daily_limit" : "rate_limited") : res.status === 500 ? "config" : "server", detail: (data && data.detail) || ("HTTP " + res.status) };
     return data;
   }
   function errCopy(e) {
@@ -250,6 +253,7 @@ img{max-width:100%}
     if (c === "unauthorized") return "Enter the access code to get in.";
     if (c === "config") return "The server is not set up yet. Check the setup steps.";
     if (c === "network") return "No signal. Check your internet and try again.";
+    if (c === "daily_limit") return "Today's free scans are used up. Come back tomorrow, it resets in the morning.";
     if (c === "rate_limited") return "Too many scans right now. Give it a minute, then try again.";
     if (c === "image_rejected") return "Couldn't use that pic. Try another one.";
     if (c === "invalid") return "Couldn't read that one. Try a clearer pic.";
@@ -311,6 +315,33 @@ img{max-width:100%}
       h("div", { class: "facts" }, entry.facts.map(function (f) {
         return h("div", { class: "fact" }, h("span", { class: "k", text: f.type }), h("p", { text: f.text }));
       })));
+    function resultBox() {
+      var wrap = h("div", { class: "result" });
+      function draw() {
+        wrap.replaceChildren();
+        if (entry.resultImage) {
+          wrap.append(
+            h("h4", { text: "Your result" }),
+            h("figure", { class: "shot" }, h("img", { src: entry.resultImage, alt: "Your result" })),
+            h("div", { class: "row" }, h("button", { class: "btn alt", type: "button", text: "Remove pic", onclick: function () {
+              entry.resultImage = null; persist(); draw();
+            } })));
+        } else {
+          wrap.append(
+            h("p", { class: "hint", text: "Did the dare? Add a pic of what you made. Totally optional." }),
+            h("label", { class: "btn alt" }, "Add result pic",
+              h("input", { class: "pick", type: "file", accept: "image/*", "aria-label": "Add result pic", onchange: async function (ev) {
+                var f = ev.target.files && ev.target.files[0];
+                ev.target.value = "";
+                if (!f) return;
+                try { entry.resultImage = await scaled(f, 800, 0.75); persist(); draw(); toast("Result saved."); }
+                catch (e) { toast("Couldn't use that pic. Try another one."); }
+              } })));
+        }
+      }
+      draw();
+      return wrap;
+    }
     var box = h("div", { class: "assign" });
     function paint(a, loading, error) {
       box.replaceChildren(h("h3", { text: "15-minute dare" }));
@@ -321,21 +352,25 @@ img{max-width:100%}
           h("ol", {}, a.steps.map(function (s) { return h("li", { text: s }); })),
           a.twist ? h("p", { class: "twist", text: a.twist }) : null));
       }
-      var row = h("div", { class: "row" });
-      var btn = h("button", { class: a ? "btn alt" : "btn", type: "button", text: loading ? "Cooking up a dare..." : a ? "Gimme another" : "Dare me" });
-      btn.disabled = !!loading;
-      btn.addEventListener("click", async function () {
-        paint(a, true);
-        try {
-          var next = await makeAssignment(entry, a && a.title);
-          if (!opts.example) saveAssignment(entry, next); else entry.assignment = next;
-          paint(next);
-        } catch (e) { paint(a, false, errCopy(e)); }
-      });
-      row.append(btn);
-      if (error) row.append(h("span", { class: "hint", text: error }));
-      if (!a && !loading && !error) row.append(h("span", { class: "hint", text: "Just pen, paper, scissors. Zero skills needed." }));
-      box.append(row);
+      if (!a) {
+        var row = h("div", { class: "row" });
+        var btn = h("button", { class: "btn", type: "button", text: loading ? "Cooking up a dare..." : "Dare me" });
+        btn.disabled = !!loading;
+        btn.addEventListener("click", async function () {
+          paint(null, true);
+          try {
+            var next = await makeAssignment(entry, "");
+            if (!opts.example) saveAssignment(entry, next); else entry.assignment = next;
+            paint(next);
+          } catch (e) { paint(null, false, errCopy(e)); }
+        });
+        row.append(btn);
+        if (error) row.append(h("span", { class: "hint", text: error }));
+        if (!loading && !error) row.append(h("span", { class: "hint", text: "One dare per pic. Make it count." }));
+        box.append(row);
+      } else if (!opts.example) {
+        box.append(resultBox());
+      }
     }
     paint(entry.assignment);
     return h("article", { class: "card lesson" }, shot, info, box);
@@ -449,7 +484,7 @@ img{max-width:100%}
         h("span", { class: "tb" },
           h("strong", { text: d.title }),
           h("small", { text: d.artist + " · " + fmtDate(d.createdAt) }),
-          d.assignment ? h("span", { class: "has", text: "Dare unlocked" }) : null));
+          (d.resultImage || d.assignment) ? h("span", { class: "has", text: d.resultImage ? "Dare done" : "Dare unlocked" }) : null));
     })));
   }
   function renderDetail(entry) {
