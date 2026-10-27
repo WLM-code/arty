@@ -4,7 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#ffe14d">
-<title>Arty Farty</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Art Drop">
+<title>Art Drop</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800;900&family=DM+Sans:wght@400;500;700&family=Courier+Prime:wght@400;700&display=swap">
 <style>
 /* Layout: poster-style single column that opens to image-left / lesson-right on wide screens.
@@ -138,13 +144,28 @@ img{max-width:100%}
 .linkbtn{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
 .codein{border:3px solid var(--ink);background:var(--paper);color:var(--ink);padding:10px 14px;min-width:0;flex:1 1 180px}
 </style>
+<style>
+.acct { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-family: var(--mono); font-weight: 700; font-size: .85rem; }
+.acct .pill { background: var(--b3); color: var(--on-block); border: 2px solid var(--ink); padding: 2px 10px; }
+.acct .who { overflow-wrap: anywhere; }
+.auth { padding: 22px 18px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.auth h2 { font-family: var(--display); font-weight: 900; text-transform: uppercase; font-size: clamp(1.6rem, 5vw, 2.4rem); line-height: .95; margin: 0; }
+.auth .sub { margin: 0; color: var(--muted); max-width: 40ch; }
+.auth-form { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 420px; }
+.auth-form .field { border: 3px solid var(--ink); background: var(--paper); color: var(--ink); padding: 12px 14px; min-width: 0; width: 100%; }
+.or { font-family: var(--mono); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: .75rem; color: var(--muted); }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Arty <span>Farty</span></h1>
+    <h1>Art <span>Drop</span></h1>
     <div class="tag">Snap it. Decode it. Remix it.</div>
   </header>
+
+  <div class="acct" id="acct" hidden></div>
 
   <nav role="tablist" aria-label="Sections">
     <button class="tab" role="tab" id="tab-scan" aria-selected="true" aria-controls="view-scan">Decode</button>
@@ -153,7 +174,8 @@ img{max-width:100%}
 
   <main>
     <section id="view-scan" role="tabpanel" aria-labelledby="tab-scan" style="display:flex;flex-direction:column;gap:24px">
-      <div class="card drop" id="drop">
+      <div id="auth-host"></div>
+      <div class="card drop" id="drop" hidden>
         <div class="drop-text">
           <h2>Found some art? Decode it.</h2>
           <p>Snap a pic or upload one. You get who made it, when, and three things that make it actually interesting.</p>
@@ -171,16 +193,20 @@ img{max-width:100%}
     </section>
   </main>
 
-  <footer>Your stash lives in this browser on this device. Every lesson keeps its pic and its dare.</footer>
+  <footer>Your stash lives in your account. Pics you decode are sent to Google Gemini to be analysed. Delete a lesson and it is gone from your stash.</footer>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
 (function () {
   "use strict";
-  var LS_KEY = "artyfarty.archive.v1", CODE_KEY = "artyfarty.code";
-  var archive = [];
-  var busy = false, lastFile = null, openId = null;
+  var CFG = window.ARTY_CONFIG || {};
+  var CONFIGURED = !!(CFG.supabaseUrl && CFG.supabaseAnonKey && !/YOUR-/.test(CFG.supabaseUrl + CFG.supabaseAnonKey) && window.supabase);
+  var LEGACY_KEY = "artyfarty.archive.v1";
+  var LIST_COLS = "id,created_at,title,artist,period,year,confidence,note,facts,assignment,thumb,has_result";
+  var sb = null, user = null, authReady = false;
+  var lessons = [], loaded = false, usage = null;
+  var busy = false, lastFile = null, openId = null, previewUrl = null;
 
   function $(s) { return document.querySelector(s); }
   function h(tag, props) {
@@ -206,8 +232,6 @@ img{max-width:100%}
     var t = $("#toast"); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 3200);
   }
-  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-  function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
 
   var EXAMPLE = {
     title: "The Starry Night", artist: "Vincent van Gogh", period: "Post-Impressionism", year: "1889",
@@ -217,44 +241,67 @@ img{max-width:100%}
       { type: "Technique", text: "He piled the paint on thick (that's called impasto) and painted the night sky from memory, in daylight, based on the view from his asylum window." },
       { type: "Quote", text: "\"I know nothing with certainty, but the sight of the stars makes me dream.\" Van Gogh wrote that in a letter to his brother Theo." }
     ],
-    image: null, assignment: null
+    image: null, assignment: null, resultImage: null
   };
+  function exampleView() { return lessonView(JSON.parse(JSON.stringify(EXAMPLE)), { example: true }); }
 
-  /* ---------- storage: this browser ---------- */
-  function load() { try { archive = JSON.parse(lsGet(LS_KEY) || "[]"); } catch (e) { archive = []; } }
-  function persist() { if (!lsSet(LS_KEY, JSON.stringify(archive))) toast("Browser storage is full or blocked."); }
-  function sorted() { return archive.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }); }
-  function saveEntry(entry) {
-    var e = Object.assign({}, entry, { id: "a" + Date.now(), createdAt: Date.now(), assignment: null });
-    archive.push(e); persist(); return e;
+  /* ---------- images ---------- */
+  async function scaled(file, max, q) {
+    var url = URL.createObjectURL(file);
+    try {
+      var img = new Image(); img.src = url; await img.decode();
+      return draw(img, max, q);
+    } finally { URL.revokeObjectURL(url); }
   }
-  function saveAssignment(entry, a) { entry.assignment = a; persist(); }
-  function deleteEntry(entry) {
-    archive = archive.filter(function (d) { return d.id !== entry.id; });
-    persist(); openId = null; renderArchive(); toast("Gone.");
+  async function rescale(dataUrl, max, q) {
+    var img = new Image(); img.src = dataUrl; await img.decode();
+    return draw(img, max, q);
+  }
+  function draw(img, max, q) {
+    var s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.naturalWidth * s)); c.height = Math.max(1, Math.round(img.naturalHeight * s));
+    var ctx = c.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", q);
   }
 
-  /* ---------- server calls ---------- */
-  var CODE_KEY = "artyfarty.code";
+  /* ---------- server calls (login token goes along) ---------- */
   async function ai(path, body) {
-    var headers = { "content-type": "application/json" };
-    var code = lsGet(CODE_KEY);
-    if (code) headers["x-access-code"] = code;
+    var s = await sb.auth.getSession();
+    var tok = s && s.data && s.data.session && s.data.session.access_token;
+    if (!tok) throw { code: "login" };
     var res;
-    try { res = await fetch(path, { method: "POST", headers: headers, body: JSON.stringify(body) }); }
-    catch (e) { throw { code: "network" }; }
+    try {
+      res = await fetch(path, {
+        method: body ? "POST" : "GET",
+        headers: { "content-type": "application/json", authorization: "Bearer " + tok },
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch (e) { throw { code: "network" }; }
     var data = null;
     try { data = await res.json(); } catch (e) { /* ignore */ }
-    if (!res.ok) throw { code: res.status === 401 ? "unauthorized" : res.status === 429 ? (data && data.daily ? "daily_limit" : "rate_limited") : res.status === 500 ? "config" : "server", detail: (data && data.detail) || ("HTTP " + res.status) };
+    if (!res.ok) {
+      var r = data && data.reason;
+      throw {
+        code: res.status === 401 ? "login"
+          : res.status === 429 ? (r === "user" ? "user_limit" : r === "global" ? "global_limit" : r === "gemini_daily" ? "daily_limit" : "rate_limited")
+          : res.status === 500 ? "config" : "server",
+        detail: (data && data.detail) || ("HTTP " + res.status)
+      };
+    }
     return data;
   }
   function errCopy(e) {
     var c = e && e.code;
-    if (c === "unauthorized") return "Enter the access code to get in.";
-    if (c === "config") return "The server is not set up yet. Check the setup steps.";
-    if (c === "network") return "No signal. Check your internet and try again.";
-    if (c === "daily_limit") return "Today's free scans are used up. Come back tomorrow, it resets in the morning.";
+    if (c === "login") return "Your login ran out. Log in again.";
+    if (c === "user_limit") return "You've used your scans for today. Fresh ones tomorrow.";
+    if (c === "global_limit") return "The whole app is maxed out for today. Try again tomorrow.";
+    if (c === "daily_limit") return "Today's free AI limit is used up. Come back tomorrow.";
     if (c === "rate_limited") return "Too many scans right now. Give it a minute, then try again.";
+    if (c === "config") return "The server isn't set up yet. Check the setup steps.";
+    if (c === "network") return "No signal. Check your internet and try again.";
     if (c === "image_rejected") return "Couldn't use that pic. Try another one.";
     if (c === "invalid") return "Couldn't read that one. Try a clearer pic.";
     return "Something broke. Try again.";
@@ -269,11 +316,12 @@ img{max-width:100%}
     return {
       title: String(r.title || "Untitled"), artist: String(r.artist || "Unknown"),
       period: String(r.period || ""), year: String(r.year || ""), confidence: conf,
-      note: String(r.note || ""), facts: facts, image: image, assignment: null
+      note: String(r.note || ""), facts: facts, image: image
     };
   }
-  async function makeAssignment(entry, prevTitle) {
-    var r = await ai("/api/challenge", { title: entry.title, artist: entry.artist, period: entry.period, facts: entry.facts, prev: prevTitle || "" });
+  async function makeAssignment(entry) {
+    var data = await ai("/api/challenge", { title: entry.title, artist: entry.artist, period: entry.period, facts: entry.facts });
+    var r = data && data.result;
     var steps = (Array.isArray(r && r.steps) ? r.steps : []).map(String).filter(Boolean);
     if (!steps.length) throw { code: "invalid" };
     return {
@@ -283,19 +331,85 @@ img{max-width:100%}
     };
   }
 
-  /* ---------- images ---------- */
-  async function scaled(file, max, q) {
-    var url = URL.createObjectURL(file);
+  /* ---------- the stash lives in the account ---------- */
+  function fromRow(r) {
+    return {
+      id: r.id, createdAt: Date.parse(r.created_at) || Date.now(), title: r.title, artist: r.artist || "Unknown",
+      period: r.period || "", year: r.year || "", confidence: r.confidence || "low", note: r.note || "",
+      facts: Array.isArray(r.facts) ? r.facts : [], assignment: r.assignment || null, thumb: r.thumb || null,
+      image: null, resultImage: null, hasResult: !!r.has_result, imagesLoaded: false
+    };
+  }
+  async function loadLessons() {
+    var r = await sb.from("lessons").select(LIST_COLS).order("created_at", { ascending: false }).limit(200);
+    if (r.error) { toast("Couldn't load your stash."); lessons = []; }
+    else lessons = (r.data || []).map(fromRow);
+    loaded = true;
+  }
+  async function loadImages(entry) {
+    if (entry.imagesLoaded) return;
+    var r = await sb.from("lessons").select("image,result_image").eq("id", entry.id).single();
+    if (!r.error && r.data) { entry.image = r.data.image; entry.resultImage = r.data.result_image; entry.imagesLoaded = true; }
+  }
+  async function insertLesson(n, thumb) {
+    var r = await sb.from("lessons").insert({
+      title: n.title, artist: n.artist, period: n.period, year: n.year, confidence: n.confidence,
+      note: n.note, facts: n.facts, thumb: thumb, image: n.image
+    }).select(LIST_COLS).single();
+    if (r.error) throw r.error;
+    var e = fromRow(r.data); e.image = n.image; e.imagesLoaded = true;
+    return e;
+  }
+  async function saveAssignment(entry, a) {
+    entry.assignment = a;
+    if (!entry.id) return;
+    var r = await sb.from("lessons").update({ assignment: a }).eq("id", entry.id);
+    if (r.error) toast("Dare not saved to your stash.");
+  }
+  async function saveResult(entry, data) {
+    var r = await sb.from("lessons").update({ result_image: data, has_result: !!data }).eq("id", entry.id);
+    if (r.error) throw r.error;
+    entry.resultImage = data; entry.hasResult = !!data;
+  }
+  async function deleteLesson(entry) {
+    var r = await sb.from("lessons").delete().eq("id", entry.id);
+    if (r.error) { toast("Couldn't delete that one."); return; }
+    lessons = lessons.filter(function (d) { return d.id !== entry.id; });
+    openId = null; renderArchive(); toast("Gone.");
+  }
+  async function loadUsage() {
     try {
-      var img = new Image(); img.src = url; await img.decode();
-      var s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-      var c = document.createElement("canvas");
-      c.width = Math.max(1, Math.round(img.naturalWidth * s)); c.height = Math.max(1, Math.round(img.naturalHeight * s));
-      var ctx = c.getContext("2d");
-      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height);
-      ctx.drawImage(img, 0, 0, c.width, c.height);
-      return c.toDataURL("image/jpeg", q);
-    } finally { URL.revokeObjectURL(url); }
+      var r = await ai("/api/usage");
+      usage = { limit: r.scan_limit, left: Math.max(0, r.scan_limit - r.scans_used) };
+    } catch (e) { usage = null; }
+  }
+
+  /* ---------- old local stash (from before logins) ---------- */
+  function legacyList() {
+    try { var a = JSON.parse(localStorage.getItem(LEGACY_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+  }
+  async function moveLegacy() {
+    var list = legacyList().sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    var failed = [];
+    for (var i = 0; i < list.length; i++) {
+      var d = list[i];
+      try {
+        var thumb = d.image ? await rescale(d.image, 320, 0.7) : null;
+        var r = await sb.from("lessons").insert({
+          title: d.title || "Untitled", artist: d.artist || "Unknown", period: d.period || "", year: d.year || "",
+          confidence: d.confidence || "low", note: d.note || "", facts: d.facts || [], assignment: d.assignment || null,
+          thumb: thumb, image: d.image || null, result_image: d.resultImage || null, has_result: !!d.resultImage,
+          created_at: new Date(d.createdAt || Date.now()).toISOString()
+        });
+        if (r.error) throw r.error;
+      } catch (e) { failed.push(d); }
+    }
+    try {
+      if (failed.length) localStorage.setItem(LEGACY_KEY, JSON.stringify(failed));
+      else localStorage.removeItem(LEGACY_KEY);
+    } catch (e) { /* ignore */ }
+    await loadLessons();
+    return !failed.length;
   }
 
   /* ---------- lesson view ---------- */
@@ -315,16 +429,18 @@ img{max-width:100%}
       h("div", { class: "facts" }, entry.facts.map(function (f) {
         return h("div", { class: "fact" }, h("span", { class: "k", text: f.type }), h("p", { text: f.text }));
       })));
+
     function resultBox() {
       var wrap = h("div", { class: "result" });
-      function draw() {
+      function paintResult() {
         wrap.replaceChildren();
         if (entry.resultImage) {
           wrap.append(
             h("h4", { text: "Your result" }),
             h("figure", { class: "shot" }, h("img", { src: entry.resultImage, alt: "Your result" })),
-            h("div", { class: "row" }, h("button", { class: "btn alt", type: "button", text: "Remove pic", onclick: function () {
-              entry.resultImage = null; persist(); draw();
+            h("div", { class: "row" }, h("button", { class: "btn alt", type: "button", text: "Remove pic", onclick: async function () {
+              try { await saveResult(entry, null); paintResult(); renderArchiveCount(); }
+              catch (e) { toast("Couldn't remove it. Try again."); }
             } })));
         } else {
           wrap.append(
@@ -334,43 +450,47 @@ img{max-width:100%}
                 var f = ev.target.files && ev.target.files[0];
                 ev.target.value = "";
                 if (!f) return;
-                try { entry.resultImage = await scaled(f, 800, 0.75); persist(); draw(); toast("Result saved."); }
-                catch (e) { toast("Couldn't use that pic. Try another one."); }
+                try { var data = await scaled(f, 800, 0.75); await saveResult(entry, data); paintResult(); toast("Result saved."); }
+                catch (e) { toast("Couldn't save that pic. Try another one."); }
               } })));
         }
       }
-      draw();
+      paintResult();
       return wrap;
     }
+
     var box = h("div", { class: "assign" });
     function paint(a, loading, error) {
       box.replaceChildren(h("h3", { text: "15-minute dare" }));
+      if (opts.example) {
+        box.append(h("p", { class: "hint", text: "Decode your own pic to unlock a dare." }));
+        return;
+      }
       if (a) {
         box.append(h("div", { class: "task" },
           h("h4", { text: a.title }),
           a.materials.length ? h("ul", { class: "chips" }, a.materials.map(function (m) { return h("li", { text: m }); })) : null,
           h("ol", {}, a.steps.map(function (s) { return h("li", { text: s }); })),
           a.twist ? h("p", { class: "twist", text: a.twist }) : null));
+        if (entry.id) box.append(resultBox());
+        return;
       }
-      if (!a) {
-        var row = h("div", { class: "row" });
-        var btn = h("button", { class: "btn", type: "button", text: loading ? "Cooking up a dare..." : "Dare me" });
-        btn.disabled = !!loading;
-        btn.addEventListener("click", async function () {
-          paint(null, true);
-          try {
-            var next = await makeAssignment(entry, "");
-            if (!opts.example) saveAssignment(entry, next); else entry.assignment = next;
-            paint(next);
-          } catch (e) { paint(null, false, errCopy(e)); }
-        });
-        row.append(btn);
-        if (error) row.append(h("span", { class: "hint", text: error }));
-        if (!loading && !error) row.append(h("span", { class: "hint", text: "One dare per pic. Make it count." }));
-        box.append(row);
-      } else if (!opts.example) {
-        box.append(resultBox());
-      }
+      var row = h("div", { class: "row" });
+      var btn = h("button", { class: "btn", type: "button", text: loading ? "Cooking up a dare..." : "Dare me" });
+      btn.disabled = !!loading;
+      btn.addEventListener("click", async function () {
+        paint(null, true);
+        try {
+          var next = await makeAssignment(entry);
+          await saveAssignment(entry, next);
+          paint(next);
+          renderArchiveCount();
+        } catch (e) { paint(null, false, errCopy(e)); }
+      });
+      row.append(btn);
+      if (error) row.append(h("span", { class: "hint", text: error }));
+      else if (!loading) row.append(h("span", { class: "hint", text: "One dare per pic. Make it count." }));
+      box.append(row);
     }
     paint(entry.assignment);
     return h("article", { class: "card lesson" }, shot, info, box);
@@ -380,19 +500,15 @@ img{max-width:100%}
     var p = h("p", { text: msgs[0] }), i = 0;
     var t = setInterval(function () { i = (i + 1) % msgs.length; p.textContent = msgs[i]; if (!p.isConnected) clearInterval(t); }, 2200);
     return h("div", { class: "card status" },
-      img ? h("figure", { class: "shot" }, h("img", { src: img, alt: "Your photo" })) : null,
+      img ? h("figure", { class: "shot" }, h("img", { src: img, alt: "Your pic" })) : null,
       p, h("div", { class: "bar", "aria-hidden": "true" }));
   }
   function errorView(e) {
-    var box = h("div", { class: "card err" }, h("p", { text: errCopy(e) }), e && e.detail ? h("p", { class: "hint", text: "Details: " + e.detail }) : null);
-    if (e && e.code === "unauthorized") {
-      var inp = h("input", { type: "password", id: "code", class: "codein", placeholder: "Access code", autocomplete: "off" });
-      box.append(h("div", { class: "row" }, inp, h("button", { class: "btn", type: "button", text: "Unlock", onclick: function () {
-        lsSet(CODE_KEY, inp.value.trim()); if (lastFile) analyse(lastFile);
-      } })));
-    } else if (lastFile) {
-      box.append(h("button", { class: "btn", type: "button", text: "Try again", onclick: function () { analyse(lastFile); } }));
-    }
+    var box = h("div", { class: "card err" }, h("p", { text: errCopy(e) }),
+      e && e.detail ? h("p", { class: "hint", text: "Details: " + e.detail }) : null);
+    if (e && e.code === "login") box.append(h("button", { class: "btn", type: "button", text: "Log in", onclick: function () { if (sb) sb.auth.signOut(); } }));
+    else if (e && (e.code === "user_limit" || e.code === "global_limit" || e.code === "daily_limit")) { /* nothing to retry today */ }
+    else if (lastFile) box.append(h("button", { class: "btn", type: "button", text: "Try again", onclick: function () { analyse(lastFile); } }));
     return box;
   }
 
@@ -401,29 +517,8 @@ img{max-width:100%}
     busy = b;
     ["#btn-cam", "#btn-up"].forEach(function (s) { $(s).classList.toggle("busy", b); $(s + " input").disabled = b; });
   }
-  async function analyse(file) {
-    if (busy || !file) return;
-    var host = $("#lesson-host");
-    lastFile = file;
-    setBusy(true);
-    try {
-      var full, thumb;
-      try { full = await scaled(file, 1280, 0.8); thumb = await scaled(file, 640, 0.78); }
-      catch (e) { throw { code: "image_rejected" }; }
-      host.replaceChildren(loadingView(thumb));
-      var raw = await ai("/api/analyse", { image: full });
-      var entry = saveEntry(normalise(raw, thumb));
-      host.replaceChildren(lessonView(entry));
-      renderArchive();
-      toast("Saved to your stash.");
-      host.scrollIntoView({ behavior: "smooth", block: "start" });
-    } catch (e) {
-      host.replaceChildren(errorView(e));
-    } finally { setBusy(false); }
-  }
-  var previewUrl = null;
   function preview(file) {
-    if (busy || !file) return;
+    if (busy || !file || !user) return;
     if (!/^image\//.test(file.type || "image/")) { $("#lesson-host").replaceChildren(errorView({ code: "image_rejected" })); return; }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = URL.createObjectURL(file);
@@ -443,6 +538,28 @@ img{max-width:100%}
         change)));
     host.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  async function analyse(file) {
+    if (busy || !file || !user) return;
+    var host = $("#lesson-host");
+    lastFile = file; setBusy(true);
+    try {
+      var full, mid, thumb;
+      try { full = await scaled(file, 1280, 0.8); mid = await scaled(file, 640, 0.78); thumb = await scaled(file, 320, 0.7); }
+      catch (e) { throw { code: "image_rejected" }; }
+      host.replaceChildren(loadingView(mid));
+      var data = await ai("/api/analyse", { image: full });
+      if (usage && typeof data.left === "number") { usage.left = data.left; renderAcct(); }
+      var n = normalise(data.result, mid);
+      var entry;
+      try { entry = await insertLesson(n, thumb); lessons.unshift(entry); renderArchiveCount(); toast("Saved to your stash."); }
+      catch (e) { entry = Object.assign({ id: null, assignment: null, resultImage: null }, n); toast("Couldn't save it to your stash."); }
+      host.replaceChildren(lessonView(entry));
+      host.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      if (e && (e.code === "user_limit") && usage) { usage.left = 0; renderAcct(); }
+      host.replaceChildren(errorView(e));
+    } finally { setBusy(false); }
+  }
   function wireInputs() {
     var drop = $("#drop");
     ["#in-cam", "#in-up"].forEach(function (s) {
@@ -460,41 +577,145 @@ img{max-width:100%}
     });
   }
 
-  /* ---------- archive ---------- */
+  /* ---------- login ---------- */
+  function setupView() {
+    return h("div", { class: "card err" },
+      h("p", { text: "Not connected to Supabase yet." }),
+      h("p", { class: "hint", text: "Fill in config.js with your project URL and anon key, then upload it again. The README has every step." }));
+  }
+  function authView() {
+    var email = h("input", { type: "email", id: "auth-email", class: "field", placeholder: "Email", autocomplete: "email", required: "required" });
+    var pass = h("input", { type: "password", id: "auth-pass", class: "field", placeholder: "Password (6+ characters)", autocomplete: "current-password", required: "required" });
+    var msg = h("p", { class: "hint", role: "status", text: "" });
+    var google = h("button", { class: "btn", type: "button", text: "Continue with Google" });
+    var login = h("button", { class: "btn alt", type: "submit", text: "Log in" });
+    var signup = h("button", { class: "btn alt", type: "button", text: "Create account" });
+    var all = [google, login, signup];
+    function lock(b) { all.forEach(function (x) { x.disabled = b; }); }
+    function say(t) { msg.textContent = t; }
+    google.addEventListener("click", async function () {
+      lock(true); say("");
+      var r = await sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + location.pathname } });
+      if (r && r.error) { say(r.error.message); lock(false); }
+    });
+    signup.addEventListener("click", async function () {
+      if (!email.value.trim() || pass.value.length < 6) { say("Add your email and a password with 6+ characters."); return; }
+      lock(true); say("");
+      var r = await sb.auth.signUp({ email: email.value.trim(), password: pass.value, options: { emailRedirectTo: location.origin + location.pathname } });
+      lock(false);
+      if (r.error) say(r.error.message);
+      else if (!r.data.session) say("Check your email to confirm your account, then log in.");
+    });
+    var form = h("form", { class: "auth-form", onsubmit: async function (ev) {
+      ev.preventDefault();
+      if (!email.value.trim() || !pass.value) { say("Add your email and password."); return; }
+      lock(true); say("");
+      var r = await sb.auth.signInWithPassword({ email: email.value.trim(), password: pass.value });
+      lock(false);
+      if (r.error) say(r.error.message);
+    } },
+      h("div", { class: "or", text: "or use your email" }),
+      email, pass,
+      h("div", { class: "btns" }, login, signup),
+      msg);
+    return h("div", { class: "card auth" },
+      h("h2", { text: "Log in to decode" }),
+      h("p", { class: "sub", text: "Your stash lives in your account, so you can pick it up on any phone." }),
+      google, form);
+  }
+  function renderAcct() {
+    var a = $("#acct");
+    if (!user) { a.hidden = true; a.replaceChildren(); return; }
+    a.hidden = false;
+    var md = user.user_metadata || {};
+    var name = md.full_name || md.name || (user.email || "").split("@")[0] || "you";
+    a.replaceChildren(
+      h("span", { class: "who", text: "Hi, " + name }),
+      h("span", { class: "pill", text: usage ? "Scans left today: " + usage.left + "/" + usage.limit : "Scans left today: ..." }),
+      h("button", { class: "linkbtn", type: "button", text: "Log out", onclick: function () { sb.auth.signOut(); } }));
+  }
+  function renderGate() {
+    var authHost = $("#auth-host");
+    $("#drop").hidden = !user;
+    if (!CONFIGURED) { authHost.replaceChildren(setupView()); return; }
+    if (!authReady || user) authHost.replaceChildren();
+    else authHost.replaceChildren(authView());
+  }
+  async function handleSession(session) {
+    var next = session && session.user ? session.user : null;
+    if (authReady && ((next && user && next.id === user.id) || (!next && !user))) { user = next || user; return; }
+    authReady = true; user = next;
+    lessons = []; loaded = false; usage = null; openId = null; lastFile = null;
+    renderGate(); renderAcct(); renderArchive();
+    $("#lesson-host").replaceChildren(exampleView());
+    if (user) {
+      await Promise.all([loadLessons(), loadUsage()]);
+      renderAcct(); renderArchive();
+    }
+  }
+
+  /* ---------- stash ---------- */
   function fmtDate(ts) { try { return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); } catch (e) { return ""; } }
+  function renderArchiveCount() { $("#tab-archive").textContent = "My stash (" + lessons.length + ")"; }
+  function legacyBanner(n) {
+    var btn = h("button", { class: "btn", type: "button", text: "Move them to my account", onclick: async function () {
+      btn.disabled = true; btn.textContent = "Moving...";
+      var ok = await moveLegacy();
+      toast(ok ? "Moved to your account." : "Some lessons couldn't be moved. Try again.");
+      renderArchive();
+    } });
+    return h("div", { class: "card empty" },
+      h("h2", { text: "Pics on this device" }),
+      h("p", { text: n + " lesson" + (n === 1 ? "" : "s") + " from before logins are saved only in this browser. Move them into your account to keep them." }),
+      btn);
+  }
   function renderArchive() {
-    var list = sorted();
-    $("#tab-archive").textContent = "My stash (" + list.length + ")";
+    renderArchiveCount();
     var host = $("#archive-host");
+    if (!user) {
+      host.replaceChildren(h("div", { class: "card empty" },
+        h("h2", { text: "Log in to see your stash" }),
+        h("p", { text: "Your lessons, dares and result pics are saved in your account." }),
+        h("button", { class: "btn", type: "button", text: "Log in", onclick: function () { showTab("scan"); } })));
+      return;
+    }
     if (openId) {
-      var entry = list.filter(function (d) { return d.id === openId; })[0];
-      if (entry) { if (!host.querySelector("[data-open='" + openId + "']")) renderDetail(entry); return; }
+      var open = lessons.filter(function (d) { return d.id === openId; })[0];
+      if (open) { if (!host.querySelector("[data-open='" + openId + "']")) renderDetail(open); return; }
       openId = null;
     }
-    if (!list.length) {
-      host.replaceChildren(h("div", { class: "card empty" },
+    if (!loaded) { host.replaceChildren(h("div", { class: "card status" }, h("p", { text: "Loading your stash..." }))); return; }
+    var parts = [];
+    var legacy = legacyList();
+    if (legacy.length) parts.push(legacyBanner(legacy.length));
+    if (!lessons.length) {
+      parts.push(h("div", { class: "card empty" },
         h("h2", { text: "Empty stash" }),
         h("p", { text: "Everything you decode lands here, with its lesson and its dare." }),
         h("button", { class: "btn", type: "button", text: "Decode your first one", onclick: function () { showTab("scan"); } })));
-      return;
+    } else {
+      parts.push(h("div", { class: "grid" }, lessons.map(function (d) {
+        return h("button", { class: "tile", type: "button", onclick: function () { openId = d.id; renderDetail(d); } },
+          d.thumb ? h("img", { src: d.thumb, alt: "", loading: "lazy" }) : null,
+          h("span", { class: "tb" },
+            h("strong", { text: d.title }),
+            h("small", { text: d.artist + " · " + fmtDate(d.createdAt) }),
+            (d.hasResult || d.assignment) ? h("span", { class: "has", text: d.hasResult ? "Dare done" : "Dare unlocked" }) : null));
+      })));
     }
-    host.replaceChildren(h("div", { class: "grid" }, list.map(function (d) {
-      return h("button", { class: "tile", type: "button", onclick: function () { openId = d.id; renderDetail(d); } },
-        d.image ? h("img", { src: d.image, alt: "", loading: "lazy" }) : null,
-        h("span", { class: "tb" },
-          h("strong", { text: d.title }),
-          h("small", { text: d.artist + " · " + fmtDate(d.createdAt) }),
-          (d.resultImage || d.assignment) ? h("span", { class: "has", text: d.resultImage ? "Dare done" : "Dare unlocked" }) : null));
-    })));
+    host.replaceChildren.apply(host, parts);
   }
-  function renderDetail(entry) {
+  async function renderDetail(entry) {
     var host = $("#archive-host");
+    host.replaceChildren(h("div", { "data-open": entry.id, class: "card status" }, h("p", { text: "Loading..." })));
+    await loadImages(entry);
+    if (openId !== entry.id) return;
     var armed = false, delBtn;
     delBtn = h("button", { class: "btn alt", type: "button", text: "Delete", onclick: function () {
       if (!armed) {
         armed = true; delBtn.textContent = "Really delete?";
         setTimeout(function () { armed = false; delBtn.textContent = "Delete"; }, 4000);
-      } else deleteEntry(entry);
+      } else deleteLesson(entry);
     } });
     host.replaceChildren(h("div", { "data-open": entry.id },
       h("div", { class: "bar-top" },
@@ -504,7 +725,6 @@ img{max-width:100%}
     host.scrollIntoView({ block: "start" });
   }
 
-  /* ---------- tabs + boot ---------- */
   function showTab(name) {
     var scan = name === "scan";
     $("#tab-scan").setAttribute("aria-selected", scan);
@@ -515,10 +735,17 @@ img{max-width:100%}
   $("#tab-scan").addEventListener("click", function () { showTab("scan"); });
   $("#tab-archive").addEventListener("click", function () { showTab("archive"); });
 
-  load();
+  /* ---------- boot ---------- */
+  $("#view-scan").hidden = false;
   wireInputs();
-  $("#lesson-host").replaceChildren(lessonView(JSON.parse(JSON.stringify(EXAMPLE)), { example: true }));
-  renderArchive();
+  $("#drop").hidden = true;
+  $("#lesson-host").replaceChildren(exampleView());
+  renderGate(); renderArchive();
+  if (CONFIGURED) {
+    sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+    sb.auth.onAuthStateChange(function (event, session) { setTimeout(function () { handleSession(session); }, 0); });
+    sb.auth.getSession().then(function (r) { handleSession(r && r.data && r.data.session); });
+  }
 })();
 </script>
 </body>
