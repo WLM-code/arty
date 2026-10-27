@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#ffe14d">
+<title>Art Drop privacy</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+:root { --bg: #ffe14d; --paper: #fff6fb; --ink: #14120f; --rose: #ff2e93; }
+@media (prefers-color-scheme: dark) { :root { --bg: #2a1065; --paper: #3a1a8a; --ink: #fff6fb; --rose: #ff6bb5; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px 56px; }
+main { max-width: 680px; margin: 0 auto; background: var(--paper); border: 3px solid var(--ink); box-shadow: 7px 7px 0 var(--ink); padding: 22px 18px; }
+h1 { font-family: "Playfair Display", Georgia, serif; font-weight: 900; text-transform: uppercase; font-size: clamp(2rem, 9vw, 3rem); line-height: .95; margin: 0 0 8px; }
+h2 { font-size: 1.1rem; margin: 26px 0 6px; text-transform: uppercase; letter-spacing: .06em; }
+p, li { margin: 0 0 10px; }
+ul { padding-left: 1.2em; margin: 0 0 10px; }
+a { color: var(--rose); font-weight: 700; }
+.small { font-size: .85rem; opacity: .8; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy</h1>
+  <p class="small">Art Drop. Last updated 27 October 2026.</p>
+
+  <h2>What this app does</h2>
+  <p>Art Drop lets you snap or upload a picture of an artwork. You get the title, artist, period, three facts and a 15-minute dare. Your lessons are saved in your account.</p>
+
+  <h2>What we store</h2>
+  <ul>
+    <li>Your email address, and your name if you log in with Google.</li>
+    <li>Your lessons: the pic you decoded (a smaller copy), what the app found out about it, and your dare.</li>
+    <li>A pic of your result, only if you add one.</li>
+    <li>A counter of how many scans you used today, so everyone gets a fair share.</li>
+  </ul>
+  <p>Your phone or browser also keeps a login token, so you stay logged in. We do not use ads or tracking cookies.</p>
+
+  <h2>Who sees it</h2>
+  <p>Only you can see your lessons and pics. The person who runs this app can technically open the database, but does not look at your content without a reason.</p>
+
+  <h2>Where your pics go</h2>
+  <p>To decode a pic, the app sends it to Google Gemini, an AI service. On Google's free plan, Google may use what you send to improve its products. So please only scan artworks, and no pics of people.</p>
+  <p>Your data is kept in a database hosted by Supabase. We do not sell your data.</p>
+
+  <h2>Login with Google</h2>
+  <p>If you log in with Google, the app only gets your name and email address. It cannot see anything else in your Google account.</p>
+
+  <h2>Delete things</h2>
+  <p>You can delete any lesson in the app, and it is gone from your stash. To delete your whole account, ask the person who shared this app with you.</p>
+
+  <h2>Age</h2>
+  <p>If you are under 16, ask a parent or guardian before you make an account.</p>
+
+  <p><a href="./">Back to Art Drop</a></p>
+</main>
+</body>
+</html>
