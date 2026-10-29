@@ -77,7 +77,7 @@ function serviceHeaders() {
 }
 
 async function rpc(name, args) {
-  const r = await fetch(process.env.SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/rpc/" + name, {
+  const r = await fetch(process.env.SUPABASE_URL.trim().replace(/\/$/, "") + "/rest/v1/rpc/" + name, {
     method: "POST",
     headers: serviceHeaders(),
     body: JSON.stringify(args),
@@ -91,7 +91,7 @@ async function authUser(req) {
   const hdr = req.headers.authorization || "";
   const token = hdr.startsWith("Bearer ") ? hdr.slice(7) : "";
   if (!token) return null;
-  const r = await fetch(process.env.SUPABASE_URL.replace(/\/$/, "") + "/auth/v1/user", {
+  const r = await fetch(process.env.SUPABASE_URL.trim().replace(/\/$/, "") + "/auth/v1/user", {
     headers: { apikey: process.env.SUPABASE_ANON_KEY, authorization: "Bearer " + token },
   });
   if (!r.ok) return null;
@@ -108,7 +108,14 @@ async function guard(req, res, kind) {
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return null; }
   const missing = missingEnv();
   if (missing.length) { res.status(500).json({ error: "Server not set up", detail: "Missing: " + missing.join(", ") }); return null; }
-  const user = await authUser(req);
+  let user;
+  try {
+    user = await authUser(req);
+  } catch (e) {
+    console.error("Auth check failed:", e.message);
+    res.status(500).json({ error: "Auth check failed", detail: "Could not reach Supabase. Check SUPABASE_URL and SUPABASE_ANON_KEY for typos or spaces. (" + String(e.message).slice(0, 120) + ")" });
+    return null;
+  }
   if (!user) { res.status(401).json({ error: "Log in first" }); return null; }
   let claim;
   try {
